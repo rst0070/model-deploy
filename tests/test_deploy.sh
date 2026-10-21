@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Laptop-checkable acceptance tests for issue #11 (deploy values in sops + age):
+# Acceptance tests for issue #11 (deploy values in sops + age) that need no GPU:
 # AC-4, the plaintext half of AC-7, and AC-9. Run from the repo root:
 #   tests/test_deploy.sh
-# Needs sops on PATH and the laptop age key in the caller's environment.
+# Needs sops on PATH and an age key for TEST_RECIPIENT in the caller's environment.
 # docker and curl are always shimmed: no test reaches the daemon or the network.
 # Never prints or stores the decrypted contents of the real deploy.sops.env.
 set -u
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
-LAPTOP_RECIPIENT=age1wrtuy3s8q0l7g57xgz290uxxl8geywyvnk79dke5d7n3j5x0z4nsq4cygn
+TEST_RECIPIENT=age1wrtuy3s8q0l7g57xgz290uxxl8geywyvnk79dke5d7n3j5x0z4nsq4cygn
 TARGETS="up down gpu-free running logs"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/test_deploy.XXXXXX")
 trap 'rm -rf "$TMP_ROOT"' EXIT
@@ -111,7 +111,7 @@ test_ac4_no_sops() {
 }
 
 # AC-7 (plaintext half): the committed file reads as the spec's table, and the
-# laptop key decrypts it. Decrypted output goes straight to /dev/null.
+# caller's key decrypts it. Decrypted output goes straight to /dev/null.
 test_ac7_plaintext_half() {
   local committed k cache
   committed=$(git -C "$REPO" show HEAD:deploy.sops.env 2>/dev/null) ||
@@ -127,15 +127,15 @@ test_ac7_plaintext_half() {
     printf '%s\n' "$committed" | grep -q "^$k=ENC\[" ||
       fail "committed deploy.sops.env: expected $k=ENC[...], not found"
   done
-  printf '%s\n' "$committed" | grep -qF "$LAPTOP_RECIPIENT" ||
-    fail "committed deploy.sops.env: expected the laptop age recipient $LAPTOP_RECIPIENT"
+  printf '%s\n' "$committed" | grep -qF "$TEST_RECIPIENT" ||
+    fail "committed deploy.sops.env: expected the test recipient $TEST_RECIPIENT"
   (cd "$REPO" && sops -d deploy.sops.env >/dev/null 2>&1) ||
-    fail "sops -d deploy.sops.env: expected exit 0 with the laptop key, got non-zero"
+    fail "sops -d deploy.sops.env: expected exit 0 with the caller's key, got non-zero"
 }
 
 # AC-9: placeholders in deploy.sops.env -> make up refuses, names the keys,
 # prints no value, calls no docker/curl. The fixture holds the spec's
-# "Value in the PR" column (placeholders, not secrets), encrypted for the laptop.
+# "Value in the PR" column (placeholders, not secrets), encrypted for the test recipient.
 test_ac9_placeholders_refused() {
   local copy enc all k v
   copy=$(copy_repo)
@@ -148,7 +148,7 @@ LLAMA_SWAP_API_KEY=REPLACE_ME_LLAMA_SWAP_API_KEY
 HUGGING_FACE_HUB_TOKEN=REPLACE_ME_HUGGING_FACE_HUB_TOKEN
 GHCR_TOKEN=REPLACE_ME_GHCR_TOKEN
 EOF
-  (cd "$enc" && sops encrypt --age "$LAPTOP_RECIPIENT" --unencrypted-regex '^HOST_CACHE_DIR$' \
+  (cd "$enc" && sops encrypt --age "$TEST_RECIPIENT" --unencrypted-regex '^HOST_CACHE_DIR$' \
     --input-type dotenv --output-type dotenv plain.env) >"$copy/deploy.sops.env" 2>"$enc/err" ||
     fail "harness: could not encrypt the AC-9 fixture: $(one_line "$(cat "$enc/err")")"
   run_make "$copy" up "$PATH"
