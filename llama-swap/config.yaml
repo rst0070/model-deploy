@@ -10,6 +10,7 @@ macros:
   # Shared `docker run` for every vLLM engine. The engine is a sibling container
   # on the host daemon: bind-mount sources are host paths, and it publishes no
   # host port, llama-swap reaches it by container name on the compose network.
+  # ENGINES_DIR is the host path of this repo's engines/, set by the entrypoint.
   # `-e HUGGING_FACE_HUB_TOKEN` copies the value from llama-swap's environment,
   # so the token never appears in this file or in the logged command line.
   "vllm-run": >
@@ -20,13 +21,16 @@ macros:
     -e HUGGING_FACE_HUB_TOKEN
     -v ${env.HOST_CACHE_DIR}/huggingface:/root/.cache/huggingface
     -v ${env.HOST_CACHE_DIR}/vllm:/root/.cache/vllm
+    -v ${env.ENGINES_DIR}/vllm:/engines/vllm:ro
     vllm/vllm-openai:v0.31.0
     --host 0.0.0.0 --port 8000
     --gpu-memory-utilization 0.85
 
+# Every model unloads after 600s with no requests, giving the GPU back.
 models:
   "qwen3.5-0.8b":
     proxy: http://${MODEL_ID}:8000
+    ttl: 600
     cmd: |
       ${vllm-run}
       --model Qwen/Qwen3.5-0.8B
@@ -34,4 +38,15 @@ models:
       --dtype half
       --limit-mm-per-prompt '{"image": 0}'
       --enable-prefix-caching
+    cmdStop: docker stop ${MODEL_ID}
+
+  "gemma-3-4b-it":
+    proxy: http://${MODEL_ID}:8000
+    ttl: 600
+    cmd: |
+      ${vllm-run}
+      --model google/gemma-3-4b-it
+      --enable-auto-tool-choice
+      --tool-call-parser pythonic
+      --chat-template /engines/vllm/tool_chat_template_gemma3_pythonic.jinja
     cmdStop: docker stop ${MODEL_ID}
