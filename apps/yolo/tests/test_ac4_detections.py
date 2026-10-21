@@ -1,9 +1,5 @@
-import pytest
-
 from app.contract import MAX_DETECTIONS
 from tests.helpers import detect, plain_png
-
-pytestmark = pytest.mark.xfail(strict=True, reason="AC-4 not implemented")
 
 
 def test_ac4_response_echoes_detector_result(client):

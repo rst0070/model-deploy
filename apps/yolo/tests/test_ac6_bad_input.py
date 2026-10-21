@@ -1,8 +1,4 @@
-import pytest
-
 from tests.helpers import assert_error, detect
-
-pytestmark = pytest.mark.xfail(strict=True, reason="AC-6 not implemented")
 
 
 def test_ac6_text_file_is_invalid_image(client):

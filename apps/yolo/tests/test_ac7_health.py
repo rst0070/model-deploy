@@ -16,10 +16,8 @@ from tests.conftest import FakeDetector, wait_ready
 from tests.helpers import detect
 
 APP_DIR = Path(__file__).parents[1]
-xfail = pytest.mark.xfail(strict=True, reason="AC-7 not implemented")
 
 
-@xfail
 def test_ac7_health_is_503_until_weights_are_loaded():
     loaded = threading.Event()
 
@@ -38,7 +36,6 @@ def test_ac7_health_is_503_until_weights_are_loaded():
         assert resp.json() == {"status": "ok", "model": "yolo26x"}
 
 
-@xfail
 def test_ac7_detect_is_503_not_ready_while_loading():
     release = threading.Event()
     try:
@@ -50,7 +47,6 @@ def test_ac7_detect_is_503_not_ready_while_loading():
         release.set()
 
 
-@xfail
 def test_ac7_health_is_503_failed_when_load_raises():
     def load():
         raise RuntimeError("device unavailable")
@@ -62,7 +58,6 @@ def test_ac7_health_is_503_failed_when_load_raises():
         assert resp.json() == {"status": "failed"}
 
 
-@xfail
 def test_ac7_unavailable_device_exits_nonzero_and_never_healthy():
     torch = pytest.importorskip("torch")
     if torch.cuda.is_available():

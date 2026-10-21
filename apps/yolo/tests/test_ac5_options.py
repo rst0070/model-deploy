@@ -1,8 +1,4 @@
-import pytest
-
 from tests.helpers import assert_error, detect
-
-pytestmark = pytest.mark.xfail(strict=True, reason="AC-5 not implemented")
 
 
 def test_ac5_confidence_threshold_filters(real_client):
