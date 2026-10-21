@@ -1,7 +1,11 @@
-test:
-	uv sync --frozen --extra cpu && uv run --no-sync pytest -q
+# Every target runs with --no-sync after this, so a plain `uv run` cannot swap in PyPI's torch.
+sync:
+	uv sync --frozen --extra cpu
 
-lint:
+test: sync
+	uv run --no-sync pytest -q
+
+lint: sync
 	uv run --no-sync ruff check . && uv run --no-sync ruff format --check .
 
-.PHONY: test lint
+.PHONY: sync test lint
