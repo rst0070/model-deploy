@@ -1,0 +1,12 @@
+# sops rules for this repo. Who can decrypt deploy.sops.env is the list of age
+# public keys below. After changing it, re-key the file from a machine that can
+# already decrypt it: sops updatekeys deploy.sops.env
+creation_rules:
+  - path_regex: (^|/)deploy\.sops\.env$
+    # The host cache path is not a secret: keep it readable in git.
+    unencrypted_regex: ^HOST_CACHE_DIR$
+    age:
+      # the existing recipient
+      - age1wrtuy3s8q0l7g57xgz290uxxl8geywyvnk79dke5d7n3j5x0z4nsq4cygn
+      # the GPU host recipient: replace, uncomment, then sops updatekeys (README.md)
+      # - REPLACE_ME_GPU_HOST_AGE_PUBKEY

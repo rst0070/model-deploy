@@ -184,9 +184,9 @@ xfail() {
   else echo "XFAIL $1: $msg"; fi
 }
 
-xfail test_ac4_no_age_key
-xfail test_ac4_no_sops
-xfail test_ac7_plaintext_half
-xfail test_ac9_placeholders_refused
+run test_ac4_no_age_key
+run test_ac4_no_sops
+run test_ac7_plaintext_half
+run test_ac9_placeholders_refused
 
 exit "$FAILED"

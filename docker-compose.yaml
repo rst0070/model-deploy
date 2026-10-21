@@ -8,7 +8,8 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # Host port from deploy.sops.env; the container side stays 8080.
+      - "${LLAMA_SWAP_PORT:?set LLAMA_SWAP_PORT in deploy.sops.env (run through make)}:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./llama-swap/config.yaml:/etc/llama-swap/config.yaml:ro
@@ -16,8 +17,8 @@ services:
       # path and passes it to engines as ENGINES_DIR.
       - ./engines:/engines:ro
     environment:
-      LLAMA_SWAP_API_KEY: ${LLAMA_SWAP_API_KEY:?set LLAMA_SWAP_API_KEY in .env}
-      HOST_CACHE_DIR: ${HOST_CACHE_DIR:?set HOST_CACHE_DIR in .env}
+      LLAMA_SWAP_API_KEY: ${LLAMA_SWAP_API_KEY:?set LLAMA_SWAP_API_KEY in deploy.sops.env (run through make)}
+      HOST_CACHE_DIR: ${HOST_CACHE_DIR:?set HOST_CACHE_DIR in deploy.sops.env (run through make)}
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
       # The same token under the name llama-server reads.
       HF_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
