@@ -39,7 +39,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      # The CUDA base image plus the built image is well over 10 GB; drop unused toolchains first.
+      # The image is about 8 GB, nearly all CUDA wheels; drop unused toolchains so build and export fit.
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
