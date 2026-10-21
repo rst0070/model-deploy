@@ -7,6 +7,13 @@ apiKeys:
   - "${env.LLAMA_SWAP_API_KEY}"
 
 macros:
+  # vLLM's share of VRAM. vLLM claims this fraction of the whole card at start
+  # whatever the model's size, so a model that must leave room for a neighbour
+  # overrides it in its own `macros:`; gemma-3-4b-it keeps this default.
+  # Declared before vllm-run: macros expand in reverse declaration order, so
+  # one that another macro references has to come first.
+  "vllm-gpu": "0.85"
+
   # Shared `docker run` for every vLLM engine. The engine is a sibling container
   # on the host daemon: bind-mount sources are host paths, and it publishes no
   # host port, llama-swap reaches it by container name on the compose network.
@@ -24,7 +31,7 @@ macros:
     -v ${env.ENGINES_DIR}/vllm:/engines/vllm:ro
     vllm/vllm-openai:v0.31.0
     --host 0.0.0.0 --port 8000
-    --gpu-memory-utilization 0.85
+    --gpu-memory-utilization ${vllm-gpu}
 
   # Shared `docker run` for every llama.cpp engine, on the same terms as
   # vllm-run. `-hf` downloads into the Hugging Face hub layout under
@@ -49,6 +56,14 @@ models:
   "qwen3.5-0.8b":
     proxy: http://${MODEL_ID}:8000
     ttl: 600
+    # Shares the GPU with yolo26x (see routing), so it takes less than the
+    # default: the pair must still leave the 2.4 GB a single model at 0.85
+    # leaves today. 0.70 is an estimate, not a measurement: yolo26x ≈ 1.5 GB
+    # plus 0.70 × 16 GB leaves ≈ 3.3 GB. TODO(host check, AC-3): replace 0.70
+    # with the value measured on the GPU host, `nvidia-smi` free memory with
+    # both loaded, in both load orders.
+    macros:
+      "vllm-gpu": "0.70"
     cmd: |
       ${vllm-run}
       --model Qwen/Qwen3.5-0.8B
@@ -83,3 +98,32 @@ models:
       --no-mmproj
       --jinja
     cmdStop: docker stop ${MODEL_ID}
+
+  # Object detection, reached through /upstream/yolo26x/v1/detect, not chat.
+  # The image is pinned to an immutable tag, written only here: `make up`
+  # reads it from this file and pulls it before llama-swap starts. No device
+  # env, the engine's own default is cuda:0. `unlisted` keeps it out of
+  # /v1/models, which OpenAI clients read as the chat menu.
+  "yolo26x":
+    proxy: http://${MODEL_ID}:8000
+    ttl: 600
+    unlisted: true
+    cmd: >
+      docker run --name ${MODEL_ID} --rm --init
+      --label model-deploy.engine=${MODEL_ID}
+      --network model-deploy
+      --gpus all
+      ghcr.io/rst0070/model-deploy-yolo:0.1.1
+    cmdStop: docker stop ${MODEL_ID}
+
+# Which engines may share the GPU. Requesting a model evicts down to a set
+# that contains it. gemma-3-4b-it is in no set, so it only runs alone: at 0.85
+# of VRAM it leaves no room for a second engine.
+routing:
+  router:
+    use: matrix
+    settings:
+      matrix:
+        vars: { q: qwen3.5-0.8b, qg: qwen3.5-0.8b-gguf, y: yolo26x }
+        sets:
+          qwen-vision: "(q | qg) & y"
