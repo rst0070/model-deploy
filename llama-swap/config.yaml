@@ -113,7 +113,7 @@ models:
       --label model-deploy.engine=${MODEL_ID}
       --network model-deploy
       --gpus all
-      ghcr.io/rst0070/model-deploy-yolo:0.1.0
+      ghcr.io/rst0070/model-deploy-yolo:0.1.1
     cmdStop: docker stop ${MODEL_ID}
 
 # Which engines may share the GPU. Requesting a model evicts down to a set
