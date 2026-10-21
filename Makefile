@@ -39,12 +39,13 @@ $(TARGETS):
 
 # Refuses while a value is still a REPLACE_ME_* placeholder, naming keys, never
 # values. The trap logs out of ghcr.io even when a pull fails or is
-# interrupted, so the token does not stay in ~/.docker/config.json.
+# interrupted (HUP, INT, TERM: dash skips the EXIT trap on an untrapped
+# signal), so the token does not stay in ~/.docker/config.json.
 _up:
 	@bad=; for k in $(DEPLOY_KEYS); do case "$$(printenv $$k)" in REPLACE_ME_*) bad="$$bad $$k";; esac; done; \
 	[ -z "$$bad" ] || { echo "make up: these keys in $(SOPS_FILE) still hold REPLACE_ME_* placeholders:$$bad. Set them with: sops edit $(SOPS_FILE)" >&2; exit 1; }
 	@test -f $(LLAMA_SWAP_CONFIG) || { echo "make up: $(LLAMA_SWAP_CONFIG) not found" >&2; exit 1; }
-	@trap 'docker logout ghcr.io >/dev/null' EXIT; trap 'exit 1' INT TERM; \
+	@trap 'docker logout ghcr.io >/dev/null' EXIT; trap 'exit 1' HUP INT TERM; \
 	printf '%s' "$$GHCR_TOKEN" | docker login ghcr.io -u $(GHCR_USER) --password-stdin || exit 1; \
 	for img in $(GHCR_IMAGES); do docker pull $$img || exit 1; done
 	$(COMPOSE) up -d --build
