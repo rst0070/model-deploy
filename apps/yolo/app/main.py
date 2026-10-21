@@ -16,6 +16,7 @@ import PIL.PngImagePlugin
 import PIL.WebPImagePlugin
 import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.contract import (
@@ -51,8 +52,20 @@ def _open_image(data: bytes) -> PIL.Image.Image:
     try:
         if plugin is None:
             raise ValueError("unsupported format")
-        return plugin(io.BytesIO(data)).convert("RGB")
+        im = plugin(io.BytesIO(data))  # header only, nothing decoded yet
     except Exception:  # noqa: BLE001 - decoder errors on untrusted bytes are a zoo
+        raise DetectError(
+            ErrorCode.invalid_image, "image must be a decodable JPEG, PNG or WebP"
+        ) from None
+    # Constructing the plugin bypasses the decompression-bomb check Image.open would run, so
+    # reject on the header-declared size before .convert allocates width*height*3 bytes.
+    width, height = im.size
+    max_pixels = PIL.Image.MAX_IMAGE_PIXELS
+    if max_pixels is not None and width * height > max_pixels:
+        raise DetectError(ErrorCode.invalid_image, "image has too many pixels")
+    try:
+        return im.convert("RGB")
+    except Exception:  # noqa: BLE001
         raise DetectError(
             ErrorCode.invalid_image, "image must be a decodable JPEG, PNG or WebP"
         ) from None
@@ -108,6 +121,18 @@ def create_app(
     @app.exception_handler(DetectError)
     async def detect_error(_: Request, exc: DetectError) -> JSONResponse:
         return _error(exc.status, exc.code, exc.message)
+
+    @app.exception_handler(RequestValidationError)
+    async def multipart_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+        # Keep the Contract's error shape and never echo FastAPI's `detail` (it can carry the
+        # rejected input, including a SpooledTemporaryFile repr).
+        errors = exc.errors()
+        field = errors[0].get("loc", ())[-1] if errors and errors[0].get("loc") else None
+        if field == "image":
+            return _error(422, ErrorCode.invalid_image, "multipart field 'image' must be a file")
+        if field in ("confidence", "classes"):
+            return _error(422, ErrorCode.invalid_option, f"multipart field '{field}' must be text")
+        return _error(422, ErrorCode.invalid_option, "malformed multipart request")
 
     @app.exception_handler(Exception)
     async def unexpected_error(_: Request, exc: Exception) -> JSONResponse:
