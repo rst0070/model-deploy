@@ -9,12 +9,18 @@ dependencies = [
     "python-multipart",
     "pillow",
     "ultralytics==8.4.183",
-    "torch",
-    "torchvision",
 ]
+
+# Pick exactly one torch build: `cpu` for tests, `cu126` for the image. Same versions in both.
+[project.optional-dependencies]
+cpu = ["torch==2.14.1", "torchvision==0.29.1"]
+cu126 = ["torch==2.14.1", "torchvision==0.29.1"]
 
 [dependency-groups]
 dev = ["pytest", "httpx", "ruff"]
+
+[tool.uv]
+conflicts = [[{ extra = "cpu" }, { extra = "cu126" }]]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -23,10 +29,21 @@ testpaths = ["tests"]
 line-length = 100
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
-torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cu126", extra = "cu126" },
+]
+torchvision = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cu126", extra = "cu126" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true

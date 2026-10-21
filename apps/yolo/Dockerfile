@@ -1,12 +1,12 @@
 # One image = one model: the yolo26x weights are baked in at build time and the engine never
-# downloads at runtime. CUDA torch comes from the base image; the uv.lock pins CPU torch on
-# Linux for tests and is deliberately not used here.
-FROM pytorch/pytorch:2.14.1-cuda12.6-cudnn9-runtime
+# downloads at runtime. Every package comes from apps/yolo/uv.lock, the same lock the tests run
+# against; the only difference is the torch build (`cu126` extra here, `cpu` in tests).
+FROM ghcr.io/astral-sh/uv:0.7.21-python3.11-bookworm-slim
 
-# The base image's Python is Ubuntu's (PEP 668); torch already lives in its dist-packages.
 ENV PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
     YOLO_CONFIG_DIR=/tmp/ultralytics
 
 # opencv (pulled in by ultralytics) needs libGL and glib at import time.
@@ -14,15 +14,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Same ultralytics pin and the same major versions as apps/yolo/uv.lock.
-RUN pip install --no-cache-dir \
-    "ultralytics==8.4.183" \
-    "fastapi>=0.156,<1" \
-    "uvicorn>=0.54,<1" \
-    "python-multipart>=0.0.32,<0.1" \
-    "pillow>=13,<14"
-
 WORKDIR /app
+# --frozen fails the build if uv.lock is out of date with pyproject.toml.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --extra cu126 && rm -rf /root/.cache/uv
+ENV PATH=/app/.venv/bin:$PATH
+
 ADD https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt /app/weights/yolo26x.pt
 COPY app ./app
 

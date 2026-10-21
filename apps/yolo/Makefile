@@ -1,7 +1,7 @@
 test:
-	uv sync --frozen && uv run pytest -q
+	uv sync --frozen --extra cpu && uv run --no-sync pytest -q
 
 lint:
-	uv run ruff check . && uv run ruff format --check .
+	uv run --no-sync ruff check . && uv run --no-sync ruff format --check .
 
 .PHONY: test lint
