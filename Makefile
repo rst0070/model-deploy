@@ -3,9 +3,6 @@
 COMPOSE := docker compose --env-file .env
 URL := http://localhost:8080
 AUTH := -H "Authorization: Bearer $(LLAMA_SWAP_API_KEY)"
-# Host path of engines/. Engines mount it, and the host daemon resolves
-# their bind mounts, so llama-swap needs the host path, not its own.
-export ENGINES_DIR := $(CURDIR)/engines
 # Engine containers carry this label (see llama-swap/config.yaml).
 STOP_ENGINES := ids=$$(docker ps -q --filter label=model-deploy.engine); [ -z "$$ids" ] || docker stop $$ids
 

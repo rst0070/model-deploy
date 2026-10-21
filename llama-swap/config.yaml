@@ -10,7 +10,7 @@ macros:
   # Shared `docker run` for every vLLM engine. The engine is a sibling container
   # on the host daemon: bind-mount sources are host paths, and it publishes no
   # host port, llama-swap reaches it by container name on the compose network.
-  # ENGINES_DIR is the host path of this repo's engines/, set by the Makefile.
+  # ENGINES_DIR is the host path of this repo's engines/, set by the entrypoint.
   # `-e HUGGING_FACE_HUB_TOKEN` copies the value from llama-swap's environment,
   # so the token never appears in this file or in the logged command line.
   "vllm-run": >

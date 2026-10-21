@@ -12,11 +12,12 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./llama-swap/config.yaml:/etc/llama-swap/config.yaml:ro
+      # Not read here: the entrypoint asks the daemon for this mount's host
+      # path and passes it to engines as ENGINES_DIR.
+      - ./engines:/engines:ro
     environment:
       LLAMA_SWAP_API_KEY: ${LLAMA_SWAP_API_KEY:?set LLAMA_SWAP_API_KEY in .env}
       HOST_CACHE_DIR: ${HOST_CACHE_DIR:?set HOST_CACHE_DIR in .env}
-      # Host path of engines/, for engine bind mounts. `make up` sets it.
-      ENGINES_DIR: ${ENGINES_DIR:?run through make, which sets ENGINES_DIR}
       HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
     # llama-swap gives itself 30s to stop its engines on SIGTERM.
     stop_grace_period: 40s
