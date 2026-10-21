@@ -26,6 +26,24 @@ macros:
     --host 0.0.0.0 --port 8000
     --gpu-memory-utilization 0.85
 
+  # Shared `docker run` for every llama.cpp engine, on the same terms as
+  # vllm-run. `-hf` downloads into the Hugging Face hub layout under
+  # $HOME/.cache/huggingface/hub (the image runs as root), so the vLLM HF
+  # cache mount persists it too. llama-server reads its token from HF_TOKEN,
+  # which compose sets from HUGGING_FACE_HUB_TOKEN. Host and port are explicit:
+  # outside the image's LLAMA_ARG_* env the binary defaults to 127.0.0.1:9931.
+  # -ngl 99 puts every layer on the GPU.
+  "llamacpp-run": >
+    docker run --name ${MODEL_ID} --rm --init
+    --label model-deploy.engine=${MODEL_ID}
+    --network model-deploy
+    --gpus all
+    -e HF_TOKEN
+    -v ${env.HOST_CACHE_DIR}/huggingface:/root/.cache/huggingface
+    ghcr.io/ggml-org/llama.cpp:server-cuda-b11749
+    --host 0.0.0.0 --port 8080
+    -ngl 99
+
 # Every model unloads after 600s with no requests, giving the GPU back.
 models:
   "qwen3.5-0.8b":
@@ -49,4 +67,19 @@ models:
       --enable-auto-tool-choice
       --tool-call-parser pythonic
       --chat-template /engines/vllm/tool_chat_template_gemma3_pythonic.jinja
+    cmdStop: docker stop ${MODEL_ID}
+
+  # The same model as qwen3.5-0.8b, through llama.cpp. Q8_0 is the closest
+  # quant to vLLM's fp16 for a model this small. Text only, like the vLLM
+  # entry: the repo ships no mmproj, and --no-mmproj keeps it that way.
+  # --jinja uses the chat template embedded in the GGUF.
+  "qwen3.5-0.8b-gguf":
+    proxy: http://${MODEL_ID}:8080
+    ttl: 600
+    cmd: |
+      ${llamacpp-run}
+      -hf ggml-org/Qwen3.5-0.8B-GGUF:Q8_0
+      -c 4096
+      --no-mmproj
+      --jinja
     cmdStop: docker stop ${MODEL_ID}
