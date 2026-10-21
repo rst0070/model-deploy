@@ -1,55 +1,25 @@
+# Compose owns only llama-swap. Engines are not services here: llama-swap
+# starts and stops them with `docker run` / `docker stop` from its config.
 services:
-  vllm-gemma3-4b-it:
-    image: vllm/vllm-openai:v0.9.1
-    runtime: nvidia
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-      - ./tool_chat_template_gemma3_pythonic.jinja:/root/tool_chat_template_gemma3_pythonic.jinja
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}
+  llama-swap:
+    build: .
+    image: model-deploy/llama-swap:265
+    container_name: llama-swap
+    init: true
+    restart: unless-stopped
     ports:
-      - "8000:8000"
-    ipc: host
-    command: |
-      --model google/gemma-3-4b-it --enable-auto-tool-choice --tool-call-parser pythonic --chat-template /root/tool_chat_template_gemma3_pythonic.jinja
-  
-  vllm-qwen3_5-0_8b:
-    image: vllm/vllm-openai:v0.9.1
-    runtime: nvidia
-    ports:
-      - "8000:8000"
+      - "8080:8080"
     volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./llama-swap/config.yaml:/etc/llama-swap/config.yaml:ro
     environment:
-      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    ipc: host
-    command:
-      - --model
-      - Qwen/Qwen3.5-0.8B
-      - --max-model-len
-      - "4096"
-      # - --gpu-memory-utilization
-      # - "0.40"
-      - --dtype
-      - half
-      - --limit-mm-per-prompt
-      - image=0
-      - --enable-prefix-caching
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "8000"
+      LLAMA_SWAP_API_KEY: ${LLAMA_SWAP_API_KEY:?set LLAMA_SWAP_API_KEY in .env}
+      HOST_CACHE_DIR: ${HOST_CACHE_DIR:?set HOST_CACHE_DIR in .env}
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+    # llama-swap gives itself 30s to stop its engines on SIGTERM.
+    stop_grace_period: 40s
+
+networks:
+  default:
+    # Fixed name so engine `docker run --network model-deploy` can join it.
+    name: model-deploy
