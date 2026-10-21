@@ -59,8 +59,9 @@ models:
     # Shares the GPU with yolo26x (see routing), so it takes less than the
     # default: the pair must still leave the 2.4 GB a single model at 0.85
     # leaves today. 0.70 is an estimate, not a measurement: yolo26x ≈ 1.5 GB
-    # plus 0.70 × 16 GB leaves ≈ 3.3 GB. Confirm on the host with `nvidia-smi`
-    # while both are loaded.
+    # plus 0.70 × 16 GB leaves ≈ 3.3 GB. TODO(host check, AC-3): replace 0.70
+    # with the value measured on the GPU host, `nvidia-smi` free memory with
+    # both loaded, in both load orders.
     macros:
       "vllm-gpu": "0.70"
     cmd: |

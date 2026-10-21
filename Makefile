@@ -15,6 +15,7 @@ GHCR_IMAGES = $(shell grep -oE 'ghcr\.io/[A-Za-z0-9_./-]+:[A-Za-z0-9_.-]+' $(LLA
 .PHONY: up down gpu-free running logs
 
 up:
+	@test -f $(LLAMA_SWAP_CONFIG) || { echo "make up: $(LLAMA_SWAP_CONFIG) not found" >&2; exit 1; }
 	@for img in $(GHCR_IMAGES); do docker pull $$img || exit 1; done
 	$(COMPOSE) up -d --build
 
