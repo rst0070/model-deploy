@@ -1,11 +1,11 @@
-"""HTTP shell: POST /v1/detect, GET /health. Run with `python -m app.main`."""
+"""HTTP shell: POST /v1/detect(/batch), GET /health. Run with `python -m app.main`."""
 
 import io
 import os
 import sys
 import threading
-from collections.abc import Callable, Sequence
-from contextlib import asynccontextmanager
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import asdict
 from typing import Annotated
 
@@ -20,19 +20,32 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.contract import (
+    MAX_BATCH_IMAGES,
     MAX_IMAGE_BYTES,
+    BatchResult,
     DetectError,
     DetectOptions,
     DetectResult,
     ErrorCode,
     ImageSize,
 )
-from app.detector import Detector
+from app.detector import Detector, detect_each
 from app.ultralytics_detector import UltralyticsDetector
 
+BUSY_RETRY_AFTER_S = 1  # an inference takes well under a second, so the wait clears by then
 
-def _error(status: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse({"error": {"code": code, "message": message}}, status_code=status)
+
+def _error(
+    status: int,
+    code: str,
+    message: str,
+    index: int | None = None,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    error: dict = {"code": code, "message": message}
+    if index is not None:
+        error["index"] = index
+    return JSONResponse({"error": error}, status_code=status, headers=headers)
 
 
 def _image_plugin(data: bytes) -> type[PIL.ImageFile.ImageFile] | None:
@@ -71,6 +84,13 @@ def _open_image(data: bytes) -> PIL.Image.Image:
         ) from None
 
 
+def _read_image(upload: UploadFile) -> PIL.Image.Image:
+    data = upload.file.read()
+    if len(data) > MAX_IMAGE_BYTES:
+        raise DetectError(ErrorCode.image_too_large, f"image exceeds {MAX_IMAGE_BYTES} bytes")
+    return _open_image(data)
+
+
 def _parse_options(confidence: str, classes: str | None, names: Sequence[str]) -> DetectOptions:
     try:
         conf = float(confidence)
@@ -98,9 +118,15 @@ def create_app(
     GET /health -> 503 {"status": "loading"} until it has returned, then 200
     {"status": "ok", "model": <model_id>}. If it raises, /health is 503 {"status": "failed"}
     and never 200 again; main() turns that into a non-zero process exit via `on_load_failure`.
-    POST /v1/detect -> 503 {"error": {"code": "not_ready", ...}} while loading."""
-    state: dict = {"detector": None, "failed": False}
-    infer_lock = threading.Lock()  # one model, one inference at a time
+    POST /v1/detect(/batch) -> 503 {"error": {"code": "not_ready", ...}} while loading, and
+    429 busy once YOLO_MAX_WAITING (env, read here, default 8) requests already wait for the
+    model behind the one in inference. A request is counted from the moment it is admitted,
+    before its images are decoded, so a busy refusal never decodes anything."""
+    state: dict = {"detector": None, "failed": False, "admitted": 0, "busy": False}
+    max_waiting = int(os.environ.get("YOLO_MAX_WAITING", "8"))
+    # Guards state["admitted"] (requests holding a place: decoding, waiting or in inference)
+    # and state["busy"] (one model, one inference at a time), so both change together.
+    model = threading.Condition()
 
     def load() -> None:
         try:
@@ -116,20 +142,55 @@ def create_app(
         threading.Thread(target=load, daemon=True).start()
         yield
 
+    @contextmanager
+    def admission() -> Iterator[Callable[[], None]]:
+        """Take a place in line, or refuse busy at once, without waiting for the model, when
+        one request plus max_waiting more already hold places. Yields `take_model`, which
+        blocks until the model is free and holds it until the block exits. Leaving the line
+        and handing the model over happen in one critical section, so the count is exact,
+        and every exit (errors included) gives the place back."""
+        with model:
+            if state["admitted"] > max_waiting:
+                raise DetectError(ErrorCode.busy, "model is busy; retry later")
+            state["admitted"] += 1
+        holding = False
+
+        def take_model() -> None:
+            nonlocal holding
+            with model:
+                while state["busy"]:
+                    model.wait()
+                state["busy"] = holding = True
+
+        try:
+            yield take_model
+        finally:
+            with model:
+                state["admitted"] -= 1
+                if holding:
+                    state["busy"] = False
+                    model.notify()
+
     app = FastAPI(lifespan=lifespan)
 
     @app.exception_handler(DetectError)
     async def detect_error(_: Request, exc: DetectError) -> JSONResponse:
-        return _error(exc.status, exc.code, exc.message)
+        headers = {"Retry-After": str(BUSY_RETRY_AFTER_S)} if exc.code == ErrorCode.busy else None
+        return _error(exc.status, exc.code, exc.message, exc.index, headers)
 
     @app.exception_handler(RequestValidationError)
     async def multipart_error(_: Request, exc: RequestValidationError) -> JSONResponse:
         # Keep the Contract's error shape and never echo FastAPI's `detail` (it can carry the
         # rejected input, including a SpooledTemporaryFile repr).
         errors = exc.errors()
-        field = errors[0].get("loc", ())[-1] if errors and errors[0].get("loc") else None
+        loc = tuple(errors[0].get("loc", ())) if errors else ()
+        # ("body", field), or ("body", "image", index) for a batch's repeated image fields.
+        field = loc[1] if len(loc) > 1 else None
         if field == "image":
-            return _error(422, ErrorCode.invalid_image, "multipart field 'image' must be a file")
+            index = loc[2] if len(loc) > 2 and isinstance(loc[2], int) else None
+            return _error(
+                422, ErrorCode.invalid_image, "multipart field 'image' must be a file", index
+            )
         if field in ("confidence", "classes"):
             return _error(422, ErrorCode.invalid_option, f"multipart field '{field}' must be text")
         return _error(422, ErrorCode.invalid_option, "malformed multipart request")
@@ -159,22 +220,53 @@ def create_app(
             return _error(503, "not_ready", why)
         if image is None:
             raise DetectError(ErrorCode.missing_image, "multipart field 'image' is required")
-        data = image.file.read()
-        if len(data) > MAX_IMAGE_BYTES:
-            raise DetectError(ErrorCode.image_too_large, f"image exceeds {MAX_IMAGE_BYTES} bytes")
-        pil_image = _open_image(data)
-        options = _parse_options(confidence, classes, detector.class_names)
-        with infer_lock:
+        with admission() as take_model:
+            pil_image = _read_image(image)
+            options = _parse_options(confidence, classes, detector.class_names)
+            take_model()
             detections = detector.detect(pil_image, options)
         result = DetectResult(detector.model_id, ImageSize(*pil_image.size), detections)
         return asdict(result)
+
+    @app.post("/v1/detect/batch")
+    def detect_batch(
+        image: Annotated[list[UploadFile] | None, File()] = None,
+        confidence: Annotated[str, Form()] = "0.25",
+        classes: Annotated[str | None, Form()] = None,
+    ):
+        detector = state["detector"]
+        if detector is None:
+            why = "model failed to load" if state["failed"] else "model is loading"
+            return _error(503, "not_ready", why)
+        if not image:
+            raise DetectError(ErrorCode.missing_image, "multipart field 'image' is required")
+        if len(image) > MAX_BATCH_IMAGES:
+            raise DetectError(
+                ErrorCode.too_many_images, f"at most {MAX_BATCH_IMAGES} 'image' fields per request"
+            )
+        with admission() as take_model:
+            pil_images: list[PIL.Image.Image] = []
+            for index, upload in enumerate(image):
+                try:
+                    pil_images.append(_read_image(upload))
+                except DetectError as exc:
+                    raise DetectError(exc.code, exc.message, index) from None
+            options = _parse_options(confidence, classes, detector.class_names)
+            take_model()
+            per_image = detect_each(detector, pil_images, options)
+        results = [
+            DetectResult(detector.model_id, ImageSize(*im.size), detections)
+            for im, detections in zip(pil_images, per_image, strict=True)
+        ]
+        return asdict(BatchResult(detector.model_id, results))
 
     return app
 
 
 def main() -> None:
     """Entry for `python -m app.main`. Env: YOLO_DEVICE (default "cuda:0"),
-    YOLO_WEIGHTS (default "yolo26x.pt"), YOLO_MODEL_ID (default "yolo26x"), PORT (8000).
+    YOLO_WEIGHTS (default "yolo26x.pt"), YOLO_MODEL_ID (default "yolo26x"), PORT (8000),
+    YOLO_MAX_WAITING (default 8: requests that may wait for the model before 429 busy).
     A detector load failure ends the process with exit code 1."""
     device = os.environ.get("YOLO_DEVICE", "cuda:0")
     weights = os.environ.get("YOLO_WEIGHTS", "yolo26x.pt")
