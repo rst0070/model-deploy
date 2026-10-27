@@ -199,7 +199,7 @@ start_llama_swap
 echo "llama-swap $SWAP on 127.0.0.1:$PORT, idling ${IDLE_S}s after load"
 run test_ac10_yolo26x_loads
 if [ "$FAILED" = 0 ]; then
-  xfail test_ac10_yolo26x_ready_after_idle
+  run test_ac10_yolo26x_ready_after_idle
 else
   echo "SKIP  test_ac10_yolo26x_ready_after_idle: yolo26x never loaded"
 fi

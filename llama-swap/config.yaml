@@ -51,7 +51,7 @@ macros:
     --host 0.0.0.0 --port 8080
     -ngl 99
 
-# Every model unloads after 600s with no requests, giving the GPU back.
+# Every model but yolo26x unloads after 600s with no requests, giving the GPU back.
 models:
   "qwen3.5-0.8b":
     proxy: http://${MODEL_ID}:8000
@@ -106,14 +106,16 @@ models:
   # /v1/models, which OpenAI clients read as the chat menu.
   "yolo26x":
     proxy: http://${MODEL_ID}:8000
-    ttl: 600
+    # Never unloaded for idleness, so it is warm between schedule windows.
+    # ≈ 1.5 GB fits next to qwen; a gemma request still evicts it (routing).
+    ttl: 0
     unlisted: true
     cmd: >
       docker run --name ${MODEL_ID} --rm --init
       --label model-deploy.engine=${MODEL_ID}
       --network model-deploy
       --gpus all
-      ghcr.io/rst0070/model-deploy-yolo:0.1.1
+      ghcr.io/rst0070/model-deploy-yolo:0.2.0
     cmdStop: docker stop ${MODEL_ID}
 
 # Which engines may share the GPU. Requesting a model evicts down to a set

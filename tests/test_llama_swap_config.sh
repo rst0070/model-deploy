@@ -95,8 +95,8 @@ xfail() {
 }
 
 preflight
-xfail test_ac10_yolo26x_never_idles_out
-xfail test_ac10_yolo26x_pins_engine_0_2_0
+run test_ac10_yolo26x_never_idles_out
+run test_ac10_yolo26x_pins_engine_0_2_0
 run test_ac10_nothing_else_changes
 
 exit "$FAILED"
