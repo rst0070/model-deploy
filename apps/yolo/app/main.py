@@ -120,11 +120,13 @@ def create_app(
     and never 200 again; main() turns that into a non-zero process exit via `on_load_failure`.
     POST /v1/detect(/batch) -> 503 {"error": {"code": "not_ready", ...}} while loading, and
     429 busy once YOLO_MAX_WAITING (env, read here, default 8) requests already wait for the
-    model behind the one in inference."""
-    state: dict = {"detector": None, "failed": False, "waiting": 0}
+    model behind the one in inference. A request is counted from the moment it is admitted,
+    before its images are decoded, so a busy refusal never decodes anything."""
+    state: dict = {"detector": None, "failed": False, "admitted": 0, "busy": False}
     max_waiting = int(os.environ.get("YOLO_MAX_WAITING", "8"))
-    infer_lock = threading.Lock()  # one model, one inference at a time
-    waiting_lock = threading.Lock()  # guards state["waiting"]
+    # Guards state["admitted"] (requests holding a place: decoding, waiting or in inference)
+    # and state["busy"] (one model, one inference at a time), so both change together.
+    model = threading.Condition()
 
     def load() -> None:
         try:
@@ -141,23 +143,33 @@ def create_app(
         yield
 
     @contextmanager
-    def model_turn() -> Iterator[None]:
-        """Hold the model for one inference. Refuse busy at once, without waiting for the
-        model, when max_waiting requests are already waiting for it."""
-        with waiting_lock:
-            free = infer_lock.acquire(blocking=False)
-            if not free:
-                if state["waiting"] >= max_waiting:
-                    raise DetectError(ErrorCode.busy, "model is busy; retry later")
-                state["waiting"] += 1
-        if not free:
-            infer_lock.acquire()
-            with waiting_lock:
-                state["waiting"] -= 1
+    def admission() -> Iterator[Callable[[], None]]:
+        """Take a place in line, or refuse busy at once, without waiting for the model, when
+        one request plus max_waiting more already hold places. Yields `take_model`, which
+        blocks until the model is free and holds it until the block exits. Leaving the line
+        and handing the model over happen in one critical section, so the count is exact,
+        and every exit (errors included) gives the place back."""
+        with model:
+            if state["admitted"] > max_waiting:
+                raise DetectError(ErrorCode.busy, "model is busy; retry later")
+            state["admitted"] += 1
+        holding = False
+
+        def take_model() -> None:
+            nonlocal holding
+            with model:
+                while state["busy"]:
+                    model.wait()
+                state["busy"] = holding = True
+
         try:
-            yield
+            yield take_model
         finally:
-            infer_lock.release()
+            with model:
+                state["admitted"] -= 1
+                if holding:
+                    state["busy"] = False
+                    model.notify()
 
     app = FastAPI(lifespan=lifespan)
 
@@ -208,9 +220,10 @@ def create_app(
             return _error(503, "not_ready", why)
         if image is None:
             raise DetectError(ErrorCode.missing_image, "multipart field 'image' is required")
-        pil_image = _read_image(image)
-        options = _parse_options(confidence, classes, detector.class_names)
-        with model_turn():
+        with admission() as take_model:
+            pil_image = _read_image(image)
+            options = _parse_options(confidence, classes, detector.class_names)
+            take_model()
             detections = detector.detect(pil_image, options)
         result = DetectResult(detector.model_id, ImageSize(*pil_image.size), detections)
         return asdict(result)
@@ -231,14 +244,15 @@ def create_app(
             raise DetectError(
                 ErrorCode.too_many_images, f"at most {MAX_BATCH_IMAGES} 'image' fields per request"
             )
-        pil_images: list[PIL.Image.Image] = []
-        for index, upload in enumerate(image):
-            try:
-                pil_images.append(_read_image(upload))
-            except DetectError as exc:
-                raise DetectError(exc.code, exc.message, index) from None
-        options = _parse_options(confidence, classes, detector.class_names)
-        with model_turn():
+        with admission() as take_model:
+            pil_images: list[PIL.Image.Image] = []
+            for index, upload in enumerate(image):
+                try:
+                    pil_images.append(_read_image(upload))
+                except DetectError as exc:
+                    raise DetectError(exc.code, exc.message, index) from None
+            options = _parse_options(confidence, classes, detector.class_names)
+            take_model()
             per_image = detect_each(detector, pil_images, options)
         results = [
             DetectResult(detector.model_id, ImageSize(*im.size), detections)
