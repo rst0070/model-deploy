@@ -132,13 +132,11 @@ def _refused_after_waiting(monkeypatch, max_waiting: str | None, waiting: int, s
             _assert_ok(sent)
 
 
-@pytest.mark.xfail(strict=True, reason=RED)
 @ENDPOINTS
 def test_ac9_request_beyond_max_waiting_is_busy(monkeypatch, send):
     _refused_after_waiting(monkeypatch, "1", waiting=1, send=send)
 
 
-@pytest.mark.xfail(strict=True, reason=RED)
 def test_ac9_default_max_waiting_is_8(monkeypatch):
     # Env unset: 1 in inference plus 8 waiting are all served; only the 10th is refused.
     _refused_after_waiting(monkeypatch, None, waiting=8, send=send_detect)

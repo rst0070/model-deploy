@@ -1,6 +1,5 @@
 """AC-8 of rst0070/rtsp-dashboard#61: POST /v1/detect/batch (test_ac4..7 belong to another issue)."""
 
-import pytest
 from fastapi.testclient import TestClient
 
 from tests.conftest import PEOPLE_JPG
@@ -39,41 +38,34 @@ def _assert_batch_equals_singles(client: TestClient, images: list[bytes]) -> Non
         assert body["results"][i] == single.json(), f"results[{i}] differs from /v1/detect"
 
 
-@pytest.mark.xfail(strict=True, reason=RED)
 def test_ac8_batch_results_equal_single_calls_in_order(real_client):
     _assert_batch_equals_singles(real_client, [PEOPLE, plain_png(), PEOPLE])
 
 
-@pytest.mark.xfail(strict=True, reason=RED)
 def test_ac8_batch_results_equal_single_calls_with_mixed_sizes(real_client):
     # The contract says results[i] equals the single-image answer unconditionally, so a
     # blank of another size than people.jpg (1280x720) must not shift the people boxes.
     _assert_batch_equals_singles(real_client, [PEOPLE, plain_png(320, 240), PEOPLE])
 
 
-@pytest.mark.xfail(strict=True, reason=RED)
 def test_ac8_no_image_is_missing_image(client):
     assert_error(detect_batch(client, [], confidence="0.5"), 422, "missing_image")
 
 
-@pytest.mark.xfail(strict=True, reason=RED)
 def test_ac8_seventeen_images_is_too_many_images(client):
     assert_error(detect_batch(client, [plain_png(32, 32)] * 17), 422, "too_many_images")
 
 
-@pytest.mark.xfail(strict=True, reason=RED)
 def test_ac8_text_file_second_is_invalid_image_index_1(client):
     body = assert_error(detect_batch(client, [PEOPLE, TEXT, PEOPLE]), 422, "invalid_image")
     assert body["error"]["index"] == 1
 
 
-@pytest.mark.xfail(strict=True, reason=RED)
 def test_ac8_oversized_second_is_image_too_large_index_1(client):
     images = [plain_png(32, 32), OVERSIZED, plain_png(32, 32)]
     body = assert_error(detect_batch(client, images), 413, "image_too_large")
     assert body["error"]["index"] == 1
 
 
-@pytest.mark.xfail(strict=True, reason=RED)
 def test_ac8_unknown_class_applies_to_batch(client):
     assert_error(detect_batch(client, [PEOPLE, PEOPLE], classes="unicorn"), 422, "unknown_class")
