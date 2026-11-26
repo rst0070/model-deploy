@@ -180,8 +180,21 @@ test_gemma_ac5_uses_qwen_decode_settings() {
     fail "expected -fa on, got: $cmd"
   printf '%s' "$cmd" | grep -qE -- '--parallel[[:space:]]+1([[:space:]]|$)' ||
     fail "expected --parallel 1, got: $cmd"
-  printf '%s' "$cmd" | grep -qE -- '-c[[:space:]]+8192([[:space:]]|$)' ||
-    fail "expected -c 8192, got: $cmd"
+}
+
+# opencode's fixed prompt is ~10.1k tokens, so 8192 failed its first request
+# ("hi") with "exceeds the available context size". 32768 leaves working room;
+# a q8_0 KV cache (needs -fa on) keeps it inside the 16 GiB card.
+test_gemma_ac6_context_32k_with_q8_kv_cache() {
+  local cmd
+  cmd=$(yq ".models.\"$GEMMA\".cmd" "$CONFIG") || fail "yq could not read $CONFIG"
+  [ "$cmd" != null ] || fail "expected models.$GEMMA to exist"
+  printf '%s' "$cmd" | grep -qE -- '-c[[:space:]]+32768([[:space:]]|$)' ||
+    fail "expected -c 32768, got: $cmd"
+  printf '%s' "$cmd" | grep -qE -- '-ctk[[:space:]]+q8_0([[:space:]]|$)' ||
+    fail "expected -ctk q8_0, got: $cmd"
+  printf '%s' "$cmd" | grep -qE -- '-ctv[[:space:]]+q8_0([[:space:]]|$)' ||
+    fail "expected -ctv q8_0, got: $cmd"
 }
 
 # --- runner ------------------------------------------------------------------
@@ -219,5 +232,6 @@ run test_gemma_ac2_is_text_only
 run test_gemma_ac3_runs_alone_in_no_routing_set
 run test_gemma_ac4_ttl_600
 run test_gemma_ac5_uses_qwen_decode_settings
+run test_gemma_ac6_context_32k_with_q8_kv_cache
 
 exit "$FAILED"
