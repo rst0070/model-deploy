@@ -138,9 +138,9 @@ preflight
 run test_ac10_yolo26x_never_idles_out
 run test_ac10_yolo26x_pins_engine_0_2_0
 run test_ac10_nothing_else_changes
-xfail test_qwen27b_entry_has_ttl_600
-xfail test_qwen27b_uses_llamacpp_run
-xfail test_qwen27b_cmd_selects_plain_iq3s_text_only
-xfail test_qwen27b_runs_alone_in_no_routing_set
+run test_qwen27b_entry_has_ttl_600
+run test_qwen27b_uses_llamacpp_run
+run test_qwen27b_cmd_selects_plain_iq3s_text_only
+run test_qwen27b_runs_alone_in_no_routing_set
 
 exit "$FAILED"

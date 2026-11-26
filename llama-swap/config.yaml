@@ -58,10 +58,12 @@ models:
     ttl: 600
     # Shares the GPU with yolo26x (see routing), so it takes less than the
     # default: the pair must still leave the 2.4 GB a single model at 0.85
-    # leaves today. 0.70 is an estimate, not a measurement: yolo26x ≈ 1.5 GB
-    # plus 0.70 × 16 GB leaves ≈ 3.3 GB. TODO(host check, AC-3): replace 0.70
-    # with the value measured on the GPU host, `nvidia-smi` free memory with
-    # both loaded, in both load orders.
+    # leaves today. 0.70 is an estimate, not a measurement, and the original
+    # arithmetic was stale: it assumed yolo26x ≈ 1.5 GB. Measured 2026-11-26,
+    # yolo26x holds 3364 MiB (≈ 3.3 GB), so 0.70 × 16380 MiB (11466) plus
+    # yolo leaves ≈ 1550 MiB (≈ 1.5 GB), short of the 2.4 GB goal. The value is
+    # unchanged. TODO(host check, AC-3): decide 0.70 from `nvidia-smi` free
+    # memory on the GPU host with both loaded, in both load orders.
     macros:
       "vllm-gpu": "0.70"
     cmd: |
@@ -99,6 +101,26 @@ models:
       --jinja
     cmdStop: docker stop ${MODEL_ID}
 
+  # Qwen3.8-27B GSQ-RCO, IQ3_S, through llama.cpp. The plain file is
+  # Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf, 11,771,546,784 bytes (≈ 11.2 GiB), so the
+  # first load downloads ≈ 12 GB. The repo's -mtp file is not used: nothing
+  # confirms the pinned llama.cpp image supports MTP. It is in no routing set,
+  # so it runs alone and evicts everything, yolo26x included: 11.2 GiB of
+  # weights leave ≈ 1.7 GiB beside yolo, too little for KV cache and buffers.
+  # -c is not free: the KV cache is reserved at load time, and 16384 fits in
+  # the ≈ 5 GiB that alone leaves above the weights, but would not beside yolo.
+  # Text only, like qwen3.5-0.8b-gguf (--no-mmproj also saves ≈ 0.9 GB).
+  "qwen3.8-27b-gsq-iq3s-gguf":
+    proxy: http://${MODEL_ID}:8080
+    ttl: 600
+    cmd: |
+      ${llamacpp-run}
+      -hf ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
+      -c 16384
+      --no-mmproj
+      --jinja
+    cmdStop: docker stop ${MODEL_ID}
+
   # Object detection, reached through /upstream/yolo26x/v1/detect, not chat.
   # The image is pinned to an immutable tag, written only here: `make up`
   # reads it from this file and pulls it before llama-swap starts. No device
@@ -107,7 +129,8 @@ models:
   "yolo26x":
     proxy: http://${MODEL_ID}:8000
     # Never unloaded for idleness, so it is warm between schedule windows.
-    # ≈ 1.5 GB fits next to qwen; a gemma request still evicts it (routing).
+    # ≈ 3.3 GB (3364 MiB measured on the GPU host, 2026-11-26) fits next to
+    # qwen; a gemma or qwen3.8-27b request still evicts it (routing).
     ttl: 0
     unlisted: true
     cmd: >
@@ -120,7 +143,8 @@ models:
 
 # Which engines may share the GPU. Requesting a model evicts down to a set
 # that contains it. gemma-3-4b-it is in no set, so it only runs alone: at 0.85
-# of VRAM it leaves no room for a second engine.
+# of VRAM it leaves no room for a second engine. So is
+# qwen3.8-27b-gsq-iq3s-gguf: its weights alone take ≈ 11.2 GiB.
 routing:
   router:
     use: matrix
