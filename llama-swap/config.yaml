@@ -101,24 +101,39 @@ models:
       --jinja
     cmdStop: docker stop ${MODEL_ID}
 
-  # Qwen3.8-27B GSQ-RCO, IQ3_S, through llama.cpp. The plain file is
-  # Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf, 11,771,546,784 bytes (≈ 11.2 GiB), so the
-  # first load downloads ≈ 12 GB. The repo's -mtp file is not used: nothing
-  # confirms the pinned llama.cpp image supports MTP. It is in no routing set,
-  # so it runs alone and evicts everything, yolo26x included: 11.2 GiB of
-  # weights leave ≈ 1.7 GiB beside yolo, too little for KV cache and buffers.
-  # -c is not free: the KV cache is reserved at load time, and 16384 fits in
-  # the ≈ 5 GiB that alone leaves above the weights, but would not beside yolo.
+  # Qwen3.8-27B GSQ-RCO, IQ3_S, through llama.cpp, with the MTP head for
+  # speculative decoding. Decode is memory-bandwidth bound: every token streams
+  # all the weights, so the head drafts a few tokens that one weight pass then
+  # verifies. The -mtp file is about 0.35 GB larger than the plain
+  # Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf (11,771,546,784 bytes, ≈ 11.2 GiB), so the
+  # first load downloads ≈ 12 GB. `-hf` takes no :quant tag here: --hf-file
+  # names the file. The pinned image (b11749) is well past the draft-mtp merge
+  # (llama.cpp PR #22673). Reported gains are +33% to +145% on a single stream
+  # (RTX 3090: 31 -> 41 tok/s); none is measured on this GPU yet.
+  #   --spec-type draft-mtp --spec-draft-n-max 2: 2 is usually best on 24 GB
+  #     cards; sweep 2-4 on the GPU host. Short outputs (≤ 400 tokens) gain less.
+  #   --parallel 1: speculation helps one stream only; the gain is gone by 4.
+  #   -fa on: flash attention, pinned so it never depends on the build default.
+  # It is in no routing set, so it runs alone and evicts everything, yolo26x
+  # included: 11.2 GiB of weights leave ≈ 1.7 GiB beside yolo, too little for
+  # KV cache and buffers. The MTP draft adds ≈ 1-2 GB, so -c is not free: the
+  # KV cache is reserved at load time. TODO(host check): if the load runs out
+  # of memory on the 16 GiB card, lower -c to 8192.
   # Text only, like qwen3.5-0.8b-gguf (--no-mmproj also saves ≈ 0.9 GB).
   "qwen3.8-27b-gsq-iq3s-gguf":
     proxy: http://${MODEL_ID}:8080
     ttl: 600
     cmd: |
       ${llamacpp-run}
-      -hf ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
+      -hf ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF
+      --hf-file Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf
       -c 16384
       --no-mmproj
       --jinja
+      -fa on
+      --parallel 1
+      --spec-type draft-mtp
+      --spec-draft-n-max 2
     cmdStop: docker stop ${MODEL_ID}
 
   # Object detection, reached through /upstream/yolo26x/v1/detect, not chat.
