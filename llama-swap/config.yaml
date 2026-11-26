@@ -136,6 +136,31 @@ models:
       --spec-draft-n-max 2
     cmdStop: docker stop ${MODEL_ID}
 
+  # Gemma 4 26B-A4B, Google's QAT Q4_0 GGUF, through llama.cpp. A MoE with
+  # ≈ 4B active parameters, so decode streams far fewer weights per token than
+  # the dense qwen3.8-27b entry: reported ≈ 3.2x faster on an RTX 4090. No MTP:
+  # Google's repo ships no MTP file. The repo holds one main GGUF (14.4 GB) and
+  # an mmproj file, so `-hf ...:Q4_0` alone picks the right one and the first
+  # load downloads ≈ 14.4 GB. Decode settings follow the Qwen entry (-fa on,
+  # --parallel 1, --jinja). Sampling and thinking are left to clients.
+  # It is in no routing set, so it runs alone and evicts everything, yolo26x
+  # included. The weights leave only ≈ 2.5-3 GiB for KV cache and buffers, so
+  # -c starts at 8192. TODO(host check): if the load runs out of memory on the
+  # 16 GiB card, lower -c or fall back to a smaller quant.
+  # Text only (--no-mmproj): the mmproj file is never loaded.
+  "gemma-4-26b-a4b-qat-gguf":
+    proxy: http://${MODEL_ID}:8080
+    ttl: 600
+    cmd: |
+      ${llamacpp-run}
+      -hf google/gemma-4-26B-A4B-it-qat-q4_0-gguf:Q4_0
+      -c 8192
+      --no-mmproj
+      --jinja
+      -fa on
+      --parallel 1
+    cmdStop: docker stop ${MODEL_ID}
+
   # Object detection, reached through /upstream/yolo26x/v1/detect, not chat.
   # The image is pinned to an immutable tag, written only here: `make up`
   # reads it from this file and pulls it before llama-swap starts. No device
@@ -159,7 +184,8 @@ models:
 # Which engines may share the GPU. Requesting a model evicts down to a set
 # that contains it. gemma-3-4b-it is in no set, so it only runs alone: at 0.85
 # of VRAM it leaves no room for a second engine. So is
-# qwen3.8-27b-gsq-iq3s-gguf: its weights alone take ≈ 11.2 GiB.
+# qwen3.8-27b-gsq-iq3s-gguf: its weights alone take ≈ 11.2 GiB. So is
+# gemma-4-26b-a4b-qat-gguf: its weights take ≈ 14.4 GB.
 routing:
   router:
     use: matrix
