@@ -89,15 +89,30 @@ test_qwen27b_uses_llamacpp_run() {
     fail "expected models.$QWEN27B.cmd to use \${llamacpp-run}, got: $cmd"
 }
 
-test_qwen27b_cmd_selects_plain_iq3s_text_only() {
-  local cmd
+test_qwen27b_cmd_selects_mtp_iq3s_text_only() {
+  local cmd words
   cmd=$(yq ".models.\"$QWEN27B\".cmd" "$CONFIG") || fail "yq could not read $CONFIG"
-  printf '%s' "$cmd" | tr -s '[:space:]' '\n' | grep -qxF -- 'ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S' ||
-    fail "expected -hf ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S, got: $cmd"
-  printf '%s' "$cmd" | tr -s '[:space:]' '\n' | grep -qxF -- '--no-mmproj' ||
+  words=$(printf '%s' "$cmd" | tr -s '[:space:]' '\n')
+  printf '%s' "$words" | grep -qxF -- 'ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF' ||
+    fail "expected -hf ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF (no :quant tag, --hf-file picks the file), got: $cmd"
+  printf '%s' "$words" | grep -qxF -- 'Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf' ||
+    fail "expected --hf-file Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf, got: $cmd"
+  printf '%s' "$words" | grep -qxF -- '--no-mmproj' ||
     fail "expected --no-mmproj in models.$QWEN27B.cmd, got: $cmd"
-  ! printf '%s' "$cmd" | grep -qi -- 'mtp' ||
-    fail "models.$QWEN27B.cmd must not use the -mtp file or tag, got: $cmd"
+}
+
+test_qwen27b_cmd_speeds_up_decode() {
+  local cmd words
+  cmd=$(yq ".models.\"$QWEN27B\".cmd" "$CONFIG") || fail "yq could not read $CONFIG"
+  words=$(printf '%s' "$cmd" | tr -s '[:space:]' '\n')
+  printf '%s' "$words" | grep -qxF -- 'draft-mtp' ||
+    fail "expected --spec-type draft-mtp, got: $cmd"
+  printf '%s' "$cmd" | grep -qE -- '--spec-draft-n-max[[:space:]]+2([[:space:]]|$)' ||
+    fail "expected --spec-draft-n-max 2, got: $cmd"
+  printf '%s' "$cmd" | grep -qE -- '--parallel[[:space:]]+1([[:space:]]|$)' ||
+    fail "expected --parallel 1 (speculation only helps one stream), got: $cmd"
+  printf '%s' "$cmd" | grep -qE -- '-fa[[:space:]]+on([[:space:]]|$)' ||
+    fail "expected -fa on, got: $cmd"
 }
 
 test_qwen27b_runs_alone_in_no_routing_set() {
@@ -140,7 +155,8 @@ run test_ac10_yolo26x_pins_engine_0_2_0
 run test_ac10_nothing_else_changes
 run test_qwen27b_entry_has_ttl_600
 run test_qwen27b_uses_llamacpp_run
-run test_qwen27b_cmd_selects_plain_iq3s_text_only
+run test_qwen27b_cmd_selects_mtp_iq3s_text_only
+run test_qwen27b_cmd_speeds_up_decode
 run test_qwen27b_runs_alone_in_no_routing_set
 
 exit "$FAILED"
