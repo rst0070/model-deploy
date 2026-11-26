@@ -13,6 +13,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 CONFIG="$REPO/llama-swap/config.yaml"
 BASE_REF=${BASE_REF:-origin/main}
 EXPECTED_IMAGE=ghcr.io/rst0070/model-deploy-yolo:0.2.0
+QWEN27B=qwen3.8-27b-gsq-iq3s-gguf
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/test_llama_swap_config.XXXXXX")
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -32,11 +33,13 @@ preflight() {
     { echo "preflight: $BASE_REF:llama-swap/config.yaml not found (fetch, or set BASE_REF)" >&2; exit 2; }
 }
 
-# normalize <file>: the config as sorted JSON, with yolo26x's ttl removed and
-# its image tag replaced by a placeholder. Comments do not survive.
+# normalize <file>: the config as sorted JSON, with yolo26x's ttl removed, its
+# image tag replaced by a placeholder, and the qwen3.8-27b entry dropped.
+# Comments do not survive.
 normalize() {
   yq -o=json '
-    del(.models.yolo26x.ttl)
+    del(.models."qwen3.8-27b-gsq-iq3s-gguf")
+    | del(.models.yolo26x.ttl)
     | .models.yolo26x.cmd |= sub("model-deploy-yolo:[^\s]+"; "model-deploy-yolo:TAG")
     | sort_keys(..)
   ' "$1"
@@ -69,8 +72,45 @@ test_ac10_nothing_else_changes() {
     fail "git show $BASE_REF:llama-swap/config.yaml failed"
   normalize "$TMP_ROOT/base.yaml" > "$TMP_ROOT/base.json" || fail "yq could not normalize the $BASE_REF config"
   diff -u "$TMP_ROOT/base.json" "$TMP_ROOT/head.json" > "$TMP_ROOT/diff" ||
-    fail "config.yaml differs from $BASE_REF beyond yolo26x ttl and image tag:
+    fail "config.yaml differs from $BASE_REF beyond yolo26x ttl, image tag and the $QWEN27B entry:
 $(cat "$TMP_ROOT/diff")"
+}
+
+test_qwen27b_entry_has_ttl_600() {
+  local ttl
+  ttl=$(yq ".models.\"$QWEN27B\".ttl" "$CONFIG") || fail "yq could not read $CONFIG"
+  [ "$ttl" = "600" ] || fail "expected models.$QWEN27B.ttl to be 600, got $ttl"
+}
+
+test_qwen27b_uses_llamacpp_run() {
+  local cmd
+  cmd=$(yq ".models.\"$QWEN27B\".cmd" "$CONFIG") || fail "yq could not read $CONFIG"
+  printf '%s' "$cmd" | tr -s '[:space:]' '\n' | grep -qxF -- '${llamacpp-run}' ||
+    fail "expected models.$QWEN27B.cmd to use \${llamacpp-run}, got: $cmd"
+}
+
+test_qwen27b_cmd_selects_plain_iq3s_text_only() {
+  local cmd
+  cmd=$(yq ".models.\"$QWEN27B\".cmd" "$CONFIG") || fail "yq could not read $CONFIG"
+  printf '%s' "$cmd" | tr -s '[:space:]' '\n' | grep -qxF -- 'ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S' ||
+    fail "expected -hf ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S, got: $cmd"
+  printf '%s' "$cmd" | tr -s '[:space:]' '\n' | grep -qxF -- '--no-mmproj' ||
+    fail "expected --no-mmproj in models.$QWEN27B.cmd, got: $cmd"
+  ! printf '%s' "$cmd" | grep -qi -- 'mtp' ||
+    fail "models.$QWEN27B.cmd must not use the -mtp file or tag, got: $cmd"
+}
+
+test_qwen27b_runs_alone_in_no_routing_set() {
+  local routing
+  # Absence only means something once the model exists.
+  [ "$(yq ".models | has(\"$QWEN27B\")" "$CONFIG")" = true ] ||
+    fail "expected models.$QWEN27B to exist"
+  routing=$(yq '.routing.router.settings.matrix | [.vars, .sets] | .. | select(tag == "!!str")' "$CONFIG") ||
+    fail "yq could not read $CONFIG"
+  ! printf '%s' "$routing" | grep -qF -- "$QWEN27B" ||
+    fail "$QWEN27B must be in no matrix var or set, found it in: $routing"
+  [ "$(yq ".routing.router.settings.matrix.vars | to_entries | map(select(.value == \"$QWEN27B\")) | length" "$CONFIG")" = 0 ] ||
+    fail "$QWEN27B must not be a value of matrix.vars"
 }
 
 # --- runner ------------------------------------------------------------------
@@ -98,5 +138,9 @@ preflight
 run test_ac10_yolo26x_never_idles_out
 run test_ac10_yolo26x_pins_engine_0_2_0
 run test_ac10_nothing_else_changes
+xfail test_qwen27b_entry_has_ttl_600
+xfail test_qwen27b_uses_llamacpp_run
+xfail test_qwen27b_cmd_selects_plain_iq3s_text_only
+xfail test_qwen27b_runs_alone_in_no_routing_set
 
 exit "$FAILED"
