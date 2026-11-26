@@ -52,3 +52,8 @@ of another llama-swap config.
 ```sh
 curl -H "Authorization: Bearer $KEY" http://<host>:8000/v1/models
 ```
+
+## Docs
+
+`docs/` holds guides for using the served models with coding agents, e.g.
+[`docs/guide/use-with-opencode.md`](docs/guide/use-with-opencode.md).
