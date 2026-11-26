@@ -144,9 +144,17 @@ models:
   # load downloads ≈ 14.4 GB. Decode settings follow the Qwen entry (-fa on,
   # --parallel 1, --jinja). Sampling and thinking are left to clients.
   # It is in no routing set, so it runs alone and evicts everything, yolo26x
-  # included. The weights leave only ≈ 2.5-3 GiB for KV cache and buffers, so
-  # -c starts at 8192. TODO(host check): if the load runs out of memory on the
-  # 16 GiB card, lower -c or fall back to a smaller quant.
+  # included. -c is 32768 because opencode's fixed prompt (system prompt plus
+  # tool schemas) is ≈ 10.1k tokens: -c 8192 failed its first request with
+  # "request (10147 tokens) exceeds the available context size". Measured at
+  # -c 8192: 14580 MiB of 16380 MiB used, ≈ 1.8 GiB free. The weights are
+  # ≈ 13.7 GiB, so the KV cache at 8k is only a few hundred MiB (most layers
+  # likely use sliding-window attention). -ctk/-ctv q8_0 halve the KV cache
+  # (a quantized V cache needs -fa on); the weights stay Q4_0. Estimated
+  # worst case at 32k is ≈ 15.2 GiB, an estimate not a measurement.
+  # TODO(host check): watch `nvidia-smi` after the first request, not only at
+  # load. If the load runs out of memory, lower -c to 24576, then add
+  # --n-cpu-moe 2 (moves expert layers to the CPU, ≈ 0.5 GB of VRAM each).
   # Text only (--no-mmproj): the mmproj file is never loaded.
   "gemma-4-26b-a4b-qat-gguf":
     proxy: http://${MODEL_ID}:8080
@@ -154,7 +162,9 @@ models:
     cmd: |
       ${llamacpp-run}
       -hf google/gemma-4-26B-A4B-it-qat-q4_0-gguf:Q4_0
-      -c 8192
+      -c 32768
+      -ctk q8_0
+      -ctv q8_0
       --no-mmproj
       --jinja
       -fa on
