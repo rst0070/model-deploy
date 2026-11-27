@@ -8,7 +8,7 @@ and accepts one bearer key.
 
 Every deploy value lives in `deploy.sops.env`, encrypted with
 [sops](https://github.com/getsops/sops) for the age recipients listed in
-`.sops.yaml`. `HOST_CACHE_DIR` is stored in plaintext; the rest is `ENC[...]`.
+`.sops.yaml`. Every value is `ENC[...]`.
 There is no `.env`: the Makefile runs everything under `sops exec-env`, so
 decrypted values exist only in the environment of that run.
 

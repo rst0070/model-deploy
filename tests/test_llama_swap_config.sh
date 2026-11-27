@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Config-contract tests for rst0070/rtsp-dashboard#61's AC-10 (yolo26x stays
+# Config-contract tests for AC-10 (yolo26x stays
 # loaded while llama-swap runs). AC-10 itself needs the GPU host (QA step 1:
 # `make up`, 15 idle minutes, `GET /running`); these pin the llama-swap config
 # that produces it. Run from the repo root:

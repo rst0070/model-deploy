@@ -1,11 +1,11 @@
-"""AC-8 of rst0070/rtsp-dashboard#61: POST /v1/detect/batch (test_ac4..7 belong to another issue)."""
+"""AC-8: POST /v1/detect/batch (test_ac4..7 belong to another issue)."""
 
 from fastapi.testclient import TestClient
 
 from tests.conftest import PEOPLE_JPG
 from tests.helpers import assert_error, detect, plain_png
 
-RED = "rst0070/rtsp-dashboard#61 AC-8: /v1/detect/batch not implemented yet"
+RED = "AC-8: /v1/detect/batch not implemented yet"
 
 PEOPLE = PEOPLE_JPG.read_bytes()
 TEXT = b"hello, not an image"
