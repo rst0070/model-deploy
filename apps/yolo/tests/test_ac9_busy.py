@@ -1,4 +1,4 @@
-"""AC-9 of rst0070/rtsp-dashboard#61: 429 busy (test_ac4..7 belong to another issue).
+"""AC-9: 429 busy (test_ac4..7 belong to another issue).
 
 YOLO_MAX_WAITING is read when create_app() is called, so each test sets it beforehand."""
 
@@ -16,7 +16,7 @@ from app.main import create_app
 from tests.conftest import wait_ready
 from tests.helpers import assert_error, plain_png
 
-RED = "rst0070/rtsp-dashboard#61 AC-9: 429 busy not implemented yet"
+RED = "AC-9: 429 busy not implemented yet"
 
 HOLD_LIMIT = 10.0  # seconds; a held detector lets go on its own after this, so nothing hangs
 SMALL_PNG = plain_png(64, 64)

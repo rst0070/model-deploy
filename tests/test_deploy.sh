@@ -113,17 +113,10 @@ test_ac4_no_sops() {
 # AC-7 (plaintext half): the committed file reads as the spec's table, and the
 # caller's key decrypts it. Decrypted output goes straight to /dev/null.
 test_ac7_plaintext_half() {
-  local committed k cache
+  local committed k
   committed=$(git -C "$REPO" show HEAD:deploy.sops.env 2>/dev/null) ||
     fail "git show HEAD:deploy.sops.env failed: deploy.sops.env is not committed at HEAD"
-  printf '%s\n' "$committed" | grep -q '^HOST_CACHE_DIR=' ||
-    fail "committed deploy.sops.env: expected a HOST_CACHE_DIR= line, not found"
-  cache=$(printf '%s\n' "$committed" | sed -n 's/^HOST_CACHE_DIR=//p' | head -n 1)
-  case $cache in
-    '') fail "committed deploy.sops.env: expected a non-empty plaintext HOST_CACHE_DIR, got an empty value" ;;
-    'ENC['*) fail "committed deploy.sops.env: expected HOST_CACHE_DIR in plaintext, got ENC[...]" ;;
-  esac
-  for k in LLAMA_SWAP_PORT LLAMA_SWAP_API_KEY HUGGING_FACE_HUB_TOKEN GHCR_TOKEN; do
+  for k in HOST_CACHE_DIR LLAMA_SWAP_PORT LLAMA_SWAP_API_KEY HUGGING_FACE_HUB_TOKEN GHCR_TOKEN; do
     printf '%s\n' "$committed" | grep -q "^$k=ENC\[" ||
       fail "committed deploy.sops.env: expected $k=ENC[...], not found"
   done
@@ -148,7 +141,7 @@ LLAMA_SWAP_API_KEY=REPLACE_ME_LLAMA_SWAP_API_KEY
 HUGGING_FACE_HUB_TOKEN=REPLACE_ME_HUGGING_FACE_HUB_TOKEN
 GHCR_TOKEN=REPLACE_ME_GHCR_TOKEN
 EOF
-  (cd "$enc" && sops encrypt --age "$TEST_RECIPIENT" --unencrypted-regex '^HOST_CACHE_DIR$' \
+  (cd "$enc" && sops encrypt --age "$TEST_RECIPIENT" \
     --input-type dotenv --output-type dotenv plain.env) >"$copy/deploy.sops.env" 2>"$enc/err" ||
     fail "harness: could not encrypt the AC-9 fixture: $(one_line "$(cat "$enc/err")")"
   run_make "$copy" up "$PATH"

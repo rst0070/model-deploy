@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runtime test for rst0070/rtsp-dashboard#61's AC-10: with llama-swap running
+# Runtime test for AC-10: with llama-swap running
 # the real config and yolo26x loaded, after IDLE_S seconds with no request
 # (default 900, the spec's 15 minutes) GET /running still lists yolo26x ready.
 # Slow and needs a Docker daemon, so opt-in. Run from the repo root:
